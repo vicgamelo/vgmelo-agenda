@@ -1,0 +1,62 @@
+[project]
+name = "vgmelo-agenda"
+version = "0.1.0"
+description = "Booking service for vgmelo.tech: open calendar, e-mail confirmation, Outlook busy times via ICS, a public MCP server and a small scheduling agent."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Victor Gabriel Andrade de Melo", email = "victor.845.melo@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "email-validator>=2.2",
+    "fastapi>=0.120",
+    "httpx>=0.28",
+    "icalendar>=6",
+    "mcp>=2.3",
+    "psycopg[binary]>=3.2",
+    "pydantic-settings>=2.6",
+    "recurring-ical-events>=3",
+    "sqlalchemy>=2.0.36",
+    "tzdata>=2025.2",
+    "uvicorn[standard]>=0.32",
+]
+
+[project.urls]
+Homepage = "https://github.com/vicgamelo/vgmelo-agenda"
+
+[project.scripts]
+vgmelo-agenda = "vgmelo_agenda.app:main"
+
+[build-system]
+requires = ["uv_build>=0.12.19,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "ASYNC", "S"]
+ignore = ["RUF001", "RUF002", "RUF003", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
+
+[tool.mypy]
+strict = true
+packages = ["vgmelo_agenda"]
+mypy_path = "src"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.1",
+    "pip-audit>=2.9",
+    "pytest>=9.2.0",
+    "ruff>=0.17.4",
+]
