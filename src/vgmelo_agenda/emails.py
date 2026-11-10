@@ -20,7 +20,7 @@ KIND_LABEL = {
     "pt": {"job": "vaga / recrutamento", "consulting": "consultoria"},
     "en": {"job": "job / recruiting", "consulting": "consulting"},
 }
-WEEKDAYS = {
+_WEEKDAYS = {
     "pt": ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"],
     "en": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
 }
@@ -39,7 +39,7 @@ def book_url(settings: Settings, lang: str) -> str:
 
 def fmt_when(when: datetime, tz: ZoneInfo, lang: str) -> str:
     t = when.astimezone(tz)
-    wd = WEEKDAYS[lang][t.weekday()]
+    wd = _WEEKDAYS[lang][t.weekday()]
     if lang == "pt":
         return f"{wd}, {t:%d/%m/%Y} às {t:%H:%M}"
     return f"{wd}, {_MONTHS_EN[t.month - 1]} {t.day}, {t.year} at {t:%H:%M}"

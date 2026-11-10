@@ -66,7 +66,7 @@ def test_horarios_livres_in_owner_and_guest_timezones(env: Env) -> None:
     brt_days, lisbon = run(env, go)
     # Today (Monday) has nothing left with 12h notice, so the default start is Tuesday, the first open day.
     assert [d["data"] for d in brt_days["dias"]] == ["2026-11-10", "2026-11-11"]
-    assert brt_days["dias"][0]["inicios"][0] == "08:00" and brt_days["dias"][0]["dia_semana"] == "ter"
+    assert brt_days["dias"][0]["inicios"][0] == "08:00" and brt_days["dias"][0]["dia_semana"] == "terça-feira"
     assert lisbon["dias"][0]["inicios"][:3] == ["11:00", "11:15", "11:30"]
     assert lisbon["fuso"] == "Europe/Lisbon"
 

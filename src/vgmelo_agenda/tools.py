@@ -27,7 +27,7 @@ CLIENT_IP: ContextVar[str] = ContextVar("client_ip", default="unknown")
 
 KIND_IN = {"vaga": "job", "consultoria": "consulting"}
 KIND_OUT = {v: k for k, v in KIND_IN.items()}
-_WD = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"]
+DIAS = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
 _TZ_RE = re.compile(r"^[A-Za-z_]+(/[A-Za-z0-9_+\-]+){0,2}$|^UTC$")
 
 INSTRUCTIONS = """\
@@ -109,7 +109,9 @@ def make_tools(agenda: Agenda, source: Source, ip: Callable[[], str] = CLIENT_IP
             local = s.astimezone(tz)
             if first <= local.date() <= last:
                 days.setdefault(local.date().isoformat(), []).append(local.strftime("%H:%M"))
-        out = [{"data": d, "dia_semana": _WD[date.fromisoformat(d).weekday()], "inicios": hs} for d, hs in days.items()]
+        out = [
+            {"data": d, "dia_semana": DIAS[date.fromisoformat(d).weekday()], "inicios": hs} for d, hs in days.items()
+        ]
         _, horizon = rules.window_dates(settings, agenda.clock())
         return {
             "tipo": tipo,

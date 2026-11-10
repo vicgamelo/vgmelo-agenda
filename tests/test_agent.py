@@ -72,9 +72,9 @@ def test_system_prompt_maps_weekdays_to_dates(make_env: EnvFactory) -> None:
     assert chat(env, "horários na sexta?").status_code == 200
     system = env.net.llm_requests[0][1]["messages"][0]["content"]
     # T0 is Monday 2026-11-09 in São Paulo.
-    assert "sex 13/11/2026 = 2026-11-13" in system
-    assert "seg 23/11/2026 = 2026-11-23" in system  # the whole booking window (14 days)
-    assert "dom 15/11/2026 = 2026-11-15" in system  # closed days too, so "domingo" isn't mapped to a wrong date
+    assert "sexta-feira 13/11/2026 (2026-11-13)" in system
+    assert "segunda-feira 23/11/2026 (2026-11-23)" in system  # the whole booking window (14 days)
+    assert "domingo 15/11/2026 (2026-11-15)" in system  # closed days too, so "domingo" isn't mapped to a wrong date
 
 
 def test_books_through_the_same_rules_and_limits(make_env: EnvFactory) -> None:
