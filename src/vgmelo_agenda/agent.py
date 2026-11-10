@@ -14,11 +14,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import anyio
@@ -71,6 +72,54 @@ TURNS_OVER = {
     "pt": "Chegamos ao limite desta conversa. Para continuar, use o formulário desta página.",
     "en": "This conversation reached its limit. Please use the form on this page to continue.",
 }
+
+
+# The model sometimes names the wrong weekday next to a right date ("Segunda-feira 13/11/2026" for a Friday) even
+# when the prompt and the tool both say "sexta-feira". The date is what gets booked, so the name follows it.
+_PT_FULL = DIAS
+_PT_SHORT = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"]
+_EN_FULL = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+_EN_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+_PT_DAY = r"(?:segunda|terça|terca|quarta|quinta|sexta)(?:-feira)?|s[áa]bado|domingo|seg|ter|qua|qui|sex|s[áa]b|dom"
+_EN_DAY = r"monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun"
+_PT_RE = re.compile(rf"\b({_PT_DAY})\b([\s,(]*(?:dia\s+)?)(\d{{1,2}})/(\d{{1,2}})(?:/(\d{{4}}))?", re.IGNORECASE)
+_EN_RE = re.compile(
+    rf"\b({_EN_DAY})\b(\.?[\s,(]*)(january|february|march|april|may|june|july|august|september|october|november|"
+    r"december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?",
+    re.IGNORECASE,
+)
+
+
+def _resolve(day: int, month: int, year: str | None, today: date) -> date | None:
+    years = [int(year)] if year else [today.year, today.year + 1]
+    for y in years:
+        try:
+            d = date(y, month, day)
+        except ValueError:
+            return None
+        if year or d >= today - timedelta(days=7):
+            return d
+    return None
+
+
+def _same_style(found: str, full: list[str], short: list[str], wd: int) -> str:
+    name = short[wd] if len(found) <= 4 else full[wd]
+    if "feira" in name and "feira" not in found.lower() and len(found) > 4:
+        name = name.split("-")[0]
+    return name[0].upper() + name[1:] if found[0].isupper() else name[0].lower() + name[1:]
+
+
+def fix_weekdays(text: str, today: date) -> str:
+    def pt(m: re.Match[str]) -> str:
+        d = _resolve(int(m[3]), int(m[4]), m[5], today)
+        return m[0] if d is None else _same_style(m[1], _PT_FULL, _PT_SHORT, d.weekday()) + m[0][len(m[1]) :]
+
+    def en(m: re.Match[str]) -> str:
+        d = _resolve(int(m[4]), _MONTHS.index(m[3][:3].lower()) + 1, m[5], today)
+        return m[0] if d is None else _same_style(m[1], _EN_FULL, _EN_SHORT, d.weekday()) + m[0][len(m[1]) :]
+
+    return _EN_RE.sub(en, _PT_RE.sub(pt, text))
 
 
 class AgentUnavailable(Exception):
@@ -281,7 +330,8 @@ class SchedulingAgent:
             if not isinstance(content, str):
                 content = ""
             if not calls:
-                content = content.strip()[:MAX_REPLY_CHARS]
+                today = self.agenda.clock().astimezone(self.settings.tz).date()
+                content = fix_weekdays(content.strip()[:MAX_REPLY_CHARS], today)
                 if not content:
                     return FALLBACK[conv.lang]
                 group.append({"role": "assistant", "content": content})

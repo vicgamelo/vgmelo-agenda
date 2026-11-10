@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from tests.conftest import ORIGIN, Env, EnvFactory
+from vgmelo_agenda.agent import fix_weekdays
 from vgmelo_agenda.db import Booking
 
 GROQ = "api.groq.com"
@@ -75,6 +78,30 @@ def test_system_prompt_maps_weekdays_to_dates(make_env: EnvFactory) -> None:
     assert "sexta-feira 13/11/2026 (2026-11-13)" in system
     assert "segunda-feira 23/11/2026 (2026-11-23)" in system  # the whole booking window (14 days)
     assert "domingo 15/11/2026 (2026-11-15)" in system  # closed days too, so "domingo" isn't mapped to a wrong date
+
+
+def test_reply_weekday_follows_the_date(make_env: EnvFactory) -> None:
+    # Real gpt-oss-20b answer in production, with every input saying "sexta-feira".
+    env = make_env(**KEYS)
+    env.net.llm[GROQ] = [text("Segunda-feira 13/11/2026 (sexta-feira) – horários livres: 08:00, 08:15.")]
+    assert chat(env, "horários na sexta?").json()["reply"].startswith("Sexta-feira 13/11/2026 (sexta-feira)")
+
+
+@pytest.mark.parametrize(
+    ("wrong", "right"),
+    [
+        ("sexta-feira (11/11/2026)", "quarta-feira (11/11/2026)"),
+        ("Tenho seg, 13/11 às 08:00", "Tenho sex, 13/11 às 08:00"),
+        ("domingo dia 14/11", "sábado dia 14/11"),
+        ("Monday, Nov 13 at 9:00", "Friday, Nov 13 at 9:00"),
+        ("Tue November 13th, 2026", "Fri November 13th, 2026"),
+        ("sexta-feira 13/11/2026 às 08:00", "sexta-feira 13/11/2026 às 08:00"),
+        ("segunda 31/02", "segunda 31/02"),  # not a date: left alone
+        ("a segunda opção é 13/11", "a segunda opção é 13/11"),  # not next to the date
+    ],
+)
+def test_fix_weekdays(wrong: str, right: str) -> None:
+    assert fix_weekdays(wrong, date(2026, 11, 10)) == right
 
 
 def test_books_through_the_same_rules_and_limits(make_env: EnvFactory) -> None:
