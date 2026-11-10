@@ -42,7 +42,7 @@ def test_happy_path_pending_confirm_and_emails(env: Env) -> None:
     guest = env.net.last_to("ana@example.com")
     assert "confirmada" in guest["subject"] and "https://meet.example/victor" in guest["text"]
     ics = FakeNet.ics_of(guest)
-    assert "DTSTART:20261110T110000Z" in ics and "METHOD:PUBLISH" in ics
+    assert "DTSTART:20261110T110000Z" in ics and "METHOD:REQUEST" in ics
     owner = env.net.last_to(OWNER)
     assert owner["reply_to"] == "ana@example.com"
     assert "Vaga de MLOps sênior" in owner["text"] and "ACME" in owner["text"]

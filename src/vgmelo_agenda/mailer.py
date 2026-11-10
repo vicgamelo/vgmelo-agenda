@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import re
 from dataclasses import dataclass
 
 import httpx
@@ -11,6 +12,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 RESEND_URL = "https://api.resend.com/emails"
+_METHOD = re.compile(r"^METHOD:([A-Z]+)\r?$", re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -42,11 +44,14 @@ class Mailer:
         if mail.reply_to:
             body["reply_to"] = mail.reply_to
         if mail.ics:
+            # Outlook only treats the .ics as an invite when the part's type names the iTIP method.
+            method = _METHOD.search(mail.ics)
+            content_type = "text/calendar; charset=utf-8" + (f"; method={method[1]}" if method else "")
             body["attachments"] = [
                 {
                     "filename": "invite.ics",
                     "content": base64.b64encode(mail.ics.encode()).decode(),
-                    "content_type": "text/calendar; charset=utf-8",
+                    "content_type": content_type,
                 }
             ]
         try:

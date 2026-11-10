@@ -61,10 +61,13 @@ def _meeting(settings: Settings, lang: str) -> str:
 
 
 def invite(settings: Settings, b: Booking, for_owner: bool, cancel: bool = False, link: str | None = None) -> str:
+    """A real invite (REQUEST / CANCEL with the recipient as ATTENDEE): with PUBLISH and no attendee Outlook
+    shows the .ics as a plain attachment instead of adding it to the calendar. Same UID on both sides and across
+    reschedules; SEQUENCE grows with each change."""
     cal = icalendar.Calendar()
     cal.add("prodid", "-//vgmelo.tech//vgmelo-agenda//EN")
     cal.add("version", "2.0")
-    cal.add("method", "CANCEL" if cancel else "PUBLISH")
+    cal.add("method", "CANCEL" if cancel else "REQUEST")
     ev = icalendar.Event()
     ev.add("uid", f"{b.id}@vgmelo.tech")
     ev.add("sequence", b.sequence + (1 if cancel else 0))
@@ -84,6 +87,12 @@ def invite(settings: Settings, b: Booking, for_owner: bool, cancel: bool = False
         desc.append(link)
     ev.add("description", "\n".join(desc))
     ev.add("organizer", f"mailto:{parseaddr(settings.email_from)[1] or 'no-reply@vgmelo.tech'}")
+    # No CN for the guest: their copy carries nothing they typed.
+    attendee = icalendar.vCalAddress(f"mailto:{settings.owner_email if for_owner else b.email}")
+    attendee.params["ROLE"] = "REQ-PARTICIPANT"
+    attendee.params["PARTSTAT"] = "NEEDS-ACTION"
+    attendee.params["RSVP"] = "FALSE"
+    ev.add("attendee", attendee)
     ev.add("status", "CANCELLED" if cancel else "CONFIRMED")
     cal.add_component(ev)
     return str(cal.to_ical().decode())
