@@ -64,6 +64,19 @@ def test_lists_slots_with_a_tool_then_answers(make_env: EnvFactory) -> None:
     assert json.loads(tool_msg["content"])["dias"][0]["inicios"][0] == "11:00"
 
 
+def test_system_prompt_maps_weekdays_to_dates(make_env: EnvFactory) -> None:
+    # In production gpt-oss-20b turned "sexta" into 11/11 (a Wednesday) from "Agora: ter, 10/11". The prompt
+    # carries the date of each of the next days so the model doesn't do calendar math.
+    env = make_env(**KEYS)
+    env.net.llm[GROQ] = [text("ok")]
+    assert chat(env, "horários na sexta?").status_code == 200
+    system = env.net.llm_requests[0][1]["messages"][0]["content"]
+    # T0 is Monday 2026-11-09 in São Paulo.
+    assert "sex 13/11/2026 = 2026-11-13" in system
+    assert "seg 23/11/2026 = 2026-11-23" in system  # the whole booking window (14 days)
+    assert "dom 15/11/2026 = 2026-11-15" in system  # closed days too, so "domingo" isn't mapped to a wrong date
+
+
 def test_books_through_the_same_rules_and_limits(make_env: EnvFactory) -> None:
     env = make_env(**KEYS)
     marcar = {
