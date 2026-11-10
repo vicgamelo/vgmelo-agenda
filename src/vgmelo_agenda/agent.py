@@ -51,6 +51,8 @@ Regras:
 - Nunca invente horários: consulte sempre a ferramenta horarios_livres e ofereça só o que ela devolver.
 - Antes de chamar marcar, confirme com a pessoa: tipo, dia, hora, duração, nome, e-mail, empresa
   (opcional) e assunto. Só chame marcar depois de um "sim" claro.
+- Nunca chame marcar com dados que a pessoa não escreveu (nada de [nome], [email] ou exemplos): se faltar
+  nome, e-mail ou assunto, pergunte primeiro.
 - Depois de marcar, diga que a conversa só vale após clicar no link enviado ao e-mail, em até 30 minutos.
 - Fuso de quem está falando com você: {visitor_tz}. Mostre horários nesse fuso e passe fuso="{visitor_tz}"
   nas ferramentas.
@@ -81,7 +83,9 @@ _PT_SHORT = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"]
 _EN_FULL = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 _EN_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 _MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
-_PT_DAY = r"(?:segunda|terça|terca|quarta|quinta|sexta)(?:-feira)?|s[áa]bado|domingo|seg|ter|qua|qui|sex|s[áa]b|dom"
+_PT_DAY = (
+    r"(?:segunda|terça|terca|quarta|quinta|sexta)(?:[-\u2011]feira)?|s[áa]bado|domingo|seg|ter|qua|qui|sex|s[áa]b|dom"
+)
 _EN_DAY = r"monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun"
 _PT_RE = re.compile(rf"\b({_PT_DAY})\b([\s,(]*(?:dia\s+)?)(\d{{1,2}})/(\d{{1,2}})(?:/(\d{{4}}))?", re.IGNORECASE)
 _EN_RE = re.compile(
@@ -177,6 +181,33 @@ class ProviderFailed(Exception):
     pass
 
 
+class ToolCallRejected(ProviderFailed):
+    """Groq's tool_use_failed: the model wrote a tool call that doesn't match the schema (e.g. "[email]")."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
+RETRY_HINT = (
+    "A chamada de ferramenta anterior foi recusada ({detail}). Não use valores de exemplo nem invente dados: "
+    "se faltar nome, e-mail ou assunto, pergunte à pessoa antes de chamar marcar."
+)
+_QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
+
+
+def _error_summary(resp: httpx.Response) -> tuple[str, str]:
+    """(code, message) of a provider error, with quoted values (what the visitor typed) cut out."""
+    try:
+        err = resp.json().get("error")
+    except ValueError:
+        return "", ""
+    if not isinstance(err, dict):
+        return "", ""
+    message = _QUOTED.sub("'…'", str(err.get("message") or ""))
+    return str(err.get("code") or err.get("type") or "")[:40], message[:300]
+
+
 class ChatLLM:
     """OpenAI-compatible chat completions with tools, trying providers in order."""
 
@@ -209,12 +240,15 @@ class ChatLLM:
                 logger.warning("llm %s: %s", name, type(exc).__name__)
                 last = exc
                 continue
-            if resp.status_code in (408, 409, 429) or resp.status_code >= 500:
-                logger.warning("llm %s: status %s, trying the next provider", name, resp.status_code)
-                last = ProviderFailed(str(resp.status_code))
-                continue
             if resp.status_code != 200:
-                logger.warning("llm %s: status %s", name, resp.status_code)
+                code, detail = _error_summary(resp)  # never failed_generation: it carries the visitor's data
+                if resp.status_code in (408, 409, 429) or resp.status_code >= 500:
+                    logger.warning("llm %s: status %s %s, trying the next provider", name, resp.status_code, code)
+                    last = ProviderFailed(str(resp.status_code))
+                    continue
+                logger.warning("llm %s: status %s %s: %s", name, resp.status_code, code, detail)
+                if code == "tool_use_failed":
+                    raise ToolCallRejected(detail)
                 raise ProviderFailed(str(resp.status_code))
             try:
                 data = resp.json()
@@ -316,14 +350,23 @@ class SchedulingAgent:
     async def _loop(self, conv: Conversation, group: list[dict[str, Any]], ip: str) -> str:
         now = self.agenda.clock()
         system = SYSTEM.format(visitor_tz=conv.tz, now=fmt_when(now, self.settings.tz, "pt"), days=self._days(now))
+        hint: list[dict[str, Any]] = []  # one-off, after a rejected tool call; never stored in the history
+        retried = False
         for _ in range(MAX_ROUNDS):
             if not self.available():
                 return FALLBACK[conv.lang]
-            messages = [{"role": "system", "content": system}, *conv.history(), *group]
+            messages = [{"role": "system", "content": system}, *conv.history(), *group, *hint]
             try:
                 message, tokens = await self.llm.complete(messages, self.schemas)
+            except ToolCallRejected as exc:
+                if retried:
+                    return FALLBACK[conv.lang]
+                retried = True
+                hint = [{"role": "system", "content": RETRY_HINT.format(detail=exc.detail)}]
+                continue
             except ProviderFailed:
                 return FALLBACK[conv.lang]
+            hint = []
             self._spend(tokens)
             calls = message.get("tool_calls") or []
             content = message.get("content") or ""

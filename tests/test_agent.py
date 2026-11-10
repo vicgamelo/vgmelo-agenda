@@ -93,6 +93,7 @@ def test_reply_weekday_follows_the_date(make_env: EnvFactory) -> None:
         ("sexta-feira (11/11/2026)", "quarta-feira (11/11/2026)"),
         ("Tenho seg, 13/11 às 08:00", "Tenho sex, 13/11 às 08:00"),
         ("domingo dia 14/11", "sábado dia 14/11"),
+        ("quarta\u2011feira 13/11/2026", "sexta-feira 13/11/2026"),  # gpt-oss writes a non-breaking hyphen
         ("Monday, Nov 13 at 9:00", "Friday, Nov 13 at 9:00"),
         ("Tue November 13th, 2026", "Fri November 13th, 2026"),
         ("sexta-feira 13/11/2026 às 08:00", "sexta-feira 13/11/2026 às 08:00"),
@@ -102,6 +103,42 @@ def test_reply_weekday_follows_the_date(make_env: EnvFactory) -> None:
 )
 def test_fix_weekdays(wrong: str, right: str) -> None:
     assert fix_weekdays(wrong, date(2026, 11, 10)) == right
+
+
+# What Groq answered in production when the model called marcar before asking for name and e-mail.
+TOOL_USE_FAILED = (
+    400,
+    {
+        "error": {
+            "message": "Tool call validation failed: tool call validation failed: parameters for tool marcar did not "
+            "match schema: errors: [`/email`: 'ana.secreta' is not valid email: missing @]",
+            "type": "invalid_request_error",
+            "code": "tool_use_failed",
+            "failed_generation": '{"name": "marcar", "arguments": {"nome": "Ana Secreta", "email": "ana.secreta"}}',
+        }
+    },
+)
+
+
+def test_invalid_tool_call_is_retried_with_the_error(make_env: EnvFactory, caplog: pytest.LogCaptureFixture) -> None:
+    env = make_env(**KEYS)
+    env.net.llm[GROQ] = [TOOL_USE_FAILED, text("Para marcar preciso do seu nome, e-mail e assunto.")]
+    r = chat(env, "Sim")
+    assert r.json()["reply"] == "Para marcar preciso do seu nome, e-mail e assunto."
+    retry = env.net.llm_requests[1][1]["messages"]
+    assert retry[-1]["role"] == "system" and "pergunte" in retry[-1]["content"]
+    assert "/email" in retry[-1]["content"] and "ana.secreta" not in retry[-1]["content"]
+    # The hint is only for the retry: the stored history stays user/assistant.
+    assert [m["role"] for m in env.ctx.agent.store.items[r.json()["conversation"]].groups[0]] == ["user", "assistant"]
+    assert "tool_use_failed" in caplog.text and "/email" in caplog.text
+    assert "ana.secreta" not in caplog.text and "Ana Secreta" not in caplog.text
+
+
+def test_invalid_tool_call_twice_gives_the_fallback(make_env: EnvFactory) -> None:
+    env = make_env(**KEYS)
+    env.net.llm[GROQ] = [TOOL_USE_FAILED, TOOL_USE_FAILED, text("never")]
+    assert chat(env, "Sim").json()["reply"].startswith("Não consegui responder agora")
+    assert len(env.net.llm_requests) == 2
 
 
 def test_books_through_the_same_rules_and_limits(make_env: EnvFactory) -> None:

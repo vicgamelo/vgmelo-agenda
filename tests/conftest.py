@@ -57,7 +57,8 @@ class FakeNet:
     ics: str | None = None
     ics_status: int = 200
     resend_status: int = 200
-    llm: dict[str, list[Any]] = field(default_factory=dict)  # host -> queued responses (dict or int status)
+    # host -> queued responses: dict (200), int status, or (status, body)
+    llm: dict[str, list[Any]] = field(default_factory=dict)
     llm_requests: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -77,6 +78,8 @@ class FakeNet:
             item = queue.pop(0) if queue else 500
             if isinstance(item, int):
                 return httpx.Response(item, json={"error": "x"})
+            if isinstance(item, tuple):
+                return httpx.Response(item[0], json=item[1])
             return httpx.Response(200, json=item)
         raise AssertionError(f"unexpected request to {request.url}")
 
